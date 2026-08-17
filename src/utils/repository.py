@@ -116,6 +116,7 @@ class SqlAlchemyRepository(AbstractRepository, Generic[M]):
             update(self._model)
             .filter(self._model.id == obj_id)
             .values(**kwargs)
+            .execution_options(synchronize_session="fetch")
             .returning(self._model)
         )
         obj: Result | None = await self._session.execute(query)

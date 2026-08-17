@@ -18,7 +18,8 @@
 3) [API](#api)
 4) [RabbitMQ](#rabbitmq)
 5) [Линтеры](#linters)
-6) [Структура проекта](#project-structure)
+6) [Тестирование](#testing)
+7) [Структура проекта](#project-structure)
 
 ## <a id="quick-start">Быстрый старт</a> 🚀
 
@@ -154,6 +155,46 @@ uv run flake8 src/ alembic/
 
 Конфигурация: `[tool.black]` / `[tool.isort]` в [pyproject.toml](pyproject.toml), [.flake8](.flake8).
 
+## <a id="testing">Тестирование</a> 🧪
+
+Тесты — **интеграционные**, запускаются против реальной PostgreSQL
+(`MODE=TEST`). RabbitMQ в тестах не требуется — публикация событий
+подменяется фейком `FakeProducer`.
+
+```bash
+# Перед запуском: PostgreSQL запущен, .env содержит MODE=TEST
+uv run pytest
+
+# Один файл или один тест
+uv run pytest tests/integration/utils/test_service.py
+uv run pytest tests/integration/utils/test_service.py::TestTenderService::test_update_tender_status -q
+```
+
+### Правила тестирования
+
+1. **Реальная БД, без моков на SQL.** Запросы выполняются в настоящей
+   PostgreSQL: проверяются `INSERT/UPDATE ... RETURNING`, индексы и связи.
+2. **Изоляция тестов.** Каждый тест работает в отдельной транзакции
+   (фикстура `transaction_session`), которая **откатывается** после теста —
+   данные не «протекают» между тестами.
+3. **RabbitMQ заменяется `FakeProducer`.** Брокер подменяется через
+   `monkeypatch.setattr("src.api.v1.services.tender.producer", ...)`.
+   Проверяется только факт публикации (`fake_producer.published`), без
+   реального подключения к брокеру.
+4. **Тестовые данные — в фикстурах.** Данные лежат в
+   `tests/fixtures/db_mocks/` (`TENDERS`, `TENDER_STATUS_HISTORY`) и
+   загружаются фикстурами `setup_tenders` / `setup_tender_status_history`.
+5. **Параметризация через `testing_cases`.** Позитивные и негативные
+   сценарии описываются данными в `tests/fixtures/testing_cases/`
+   (`BaseTestCase`, `RequestTestCase`) и прогоняются через
+   `@pytest.mark.parametrize`.
+6. **Один сценарий — три уровня проверки:** репозиторий → сервис → роутер.
+   Файлы: `tests/integration/utils/test_repository.py`,
+   `tests/integration/utils/test_service.py`,
+   `tests/integration/api/v1/routers/test_tender_router.py`.
+7. **Публикацию в брокер проверяем на уровне сервиса и роутера**, а не в
+   репозитории.
+
 ## <a id="project-structure">Структура проекта</a> 📂
 
 ```
@@ -183,7 +224,14 @@ uv run flake8 src/ alembic/
 │   ├── main.py                # создание FastAPI-приложения
 │   ├── metadata.py            # метаданные Swagger
 │   └── __main__.py            # запуск через `python -m src`
-├── pyproject.toml             # зависимости и настройки uv/black/isort
+├── pyproject.toml             # зависимости и настройки uv/black/isort/pytest
+├── tests                      # интеграционные тесты
+│   ├── integration            # тесты репозиториев, сервисов и роутеров
+│   │   ├── api/v1/routers     # тесты HTTP-эндпоинтов
+│   │   └── utils              # тесты репозиториев и сервисов
+│   ├── fixtures               # тестовые данные и моки (FakeProducer, testing_cases)
+│   ├── conftest.py            # создание/очистка тестовой БД, transaction_session
+│   └── constants.py           # константы тестов (BASE_ENDPOINT_URL)
 ├── .env.example
 ├── .flake8
 └── .gitignore

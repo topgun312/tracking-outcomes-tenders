@@ -23,6 +23,7 @@ dev = [
     "isort>=8.0.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-dotenv>=0.5.2",
 ]
 
 [tool.black]
