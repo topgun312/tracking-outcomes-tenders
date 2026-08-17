@@ -10,7 +10,6 @@ wheels/
 .venv
 
 .env
-.test.env
 
 *idea
 *.local
