@@ -171,7 +171,8 @@ class TestTenderService:
         )
         assert result.status == TenderStatus.ACTIVE
         assert len(fake_producer.published) == 1
-        assert len(result.status_history) == 2
+        assert len(result.status_history) == 1
+        assert result.status_history[0].new_status == TenderStatus.ACTIVE
 
     @pytest.mark.usefixtures("setup_tenders")
     async def test_update_tender_status_not_changed(

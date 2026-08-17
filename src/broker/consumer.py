@@ -14,7 +14,15 @@ class TenderStatusConsumer:
 
     async def consume(self) -> None:
         """Потребляет события изменения статуса тендеров и логирует их."""
-        channel = await self._connection.connect()
+        while True:
+            try:
+                channel = await self._connection.connect()
+                break
+            except Exception as exc:
+                logger.warning(
+                    "Не удалось подключиться к RabbitMQ ({}), повтор через 5 с...", exc
+                )
+                await asyncio.sleep(5)
         await channel.set_qos(prefetch_count=1)
 
         queue = await channel.declare_queue(

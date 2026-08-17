@@ -1,0 +1,60 @@
+name: Code checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    tags: ["v*.*.*"]
+
+jobs:
+  code_checks:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tracking_outcomes_tenders
+        ports:
+          - "5432:5432"
+
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Prepare .env file
+        run: cp .env.example .env
+
+      - name: Run isort
+        run: uv run isort src --check
+
+      - name: Run black
+        run: uv run black src --check
+
+      - name: Run flake8
+        run: uv run flake8 src
+
+      - name: Ensure migrations are in sync
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: Tests check
+        run: uv run pytest
