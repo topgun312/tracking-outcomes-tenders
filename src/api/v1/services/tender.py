@@ -111,7 +111,6 @@ class TenderService(BaseService):
         )
 
         tender_with_history = await self.get_tender_with_history(tender_id)
-        tender_with_history.status_history.append(history.to_schema())
         return tender_with_history
 
     @transaction_mode

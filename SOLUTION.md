@@ -29,8 +29,12 @@
    - [Сериализация моделей](#сериализация)
    - [Публикация в RabbitMQ](#rabbitmq-логика)
    - [Консюмер событий](#консюмер)
-7. [Формат ответов и ошибки](#ответы-и-ошибки)
-8. [Тестирование логики](#тестирование-логики)
+7. [Развёртывание (Docker)](#docker)
+   - [Dockerfile](#dockerfile)
+   - [docker-compose](#docker-compose)
+8. [CI/CD (GitHub Actions)](#ci-cd)
+9. [Формат ответов и ошибки](#ответы-и-ошибки)
+10. [Тестирование логики](#тестирование-логики)
    - [Окружение тестов](#окружение-тестов)
    - [Структура тестов](#структура-тестов)
    - [Проверка сценариев](#проверка-сценариев)
@@ -310,6 +314,64 @@ def to_schema(self) -> TenderStatusHistoryDB:
 - получает сообщения через `queue.iterator()` и логирует их содержимое;
 - `message.process()` подтверждает обработку (ack) — при сбое сообщение
   вернётся в очередь.
+
+---
+
+## Развёртывание (Docker)
+
+Проект полностью контейнеризирован (`Dockerfile` + `docker-compose.yml`),
+запуск всего стека — `docker compose up --build`.
+
+### Dockerfile
+
+- Базовый образ `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` — uv уже
+  установлен в образе, отдельная установка не нужна.
+- Двухшаговая установка ради кэширования слоёв:
+  1. `COPY pyproject.toml uv.lock ./` → `uv sync --frozen --no-install-project
+     --no-dev` — только зависимости (кэш);
+  2. `COPY . ./` → `uv sync --frozen --no-dev` — добавляется сам проект.
+- `.dockerignore` исключает `.venv`, `tests`, `.env` и др. — секреты и
+  локальное окружение не попадают в образ.
+- Переменные окружения: `PATH` указывает на `.venv/bin`, `PYTHONPATH=/app`,
+  `UV_COMPILE_BYTECODE=1`.
+- Точка входа по умолчанию — `uvicorn src.main:app` (в compose переопределяется).
+
+### docker-compose
+
+| Сервис | Команда | Зависимости |
+|---|---|---|
+| `db` | `postgres:16-alpine` + healthcheck `pg_isready` | — |
+| `rabbitmq` | `rabbitmq:3.13-management` + healthcheck `check_port_connectivity` | — |
+| `migrate` | `alembic upgrade head` | healthy `db` |
+| `api` | `uvicorn src.main:app` | `migrate` + healthy `db`/`rabbitmq` |
+| `consumer` | `python -m src.broker.consumer` | `migrate` + healthy `db`/`rabbitmq` |
+
+- Хосты внутри контейнеров задаются общим блоком `x-app-env`
+  (`DB_HOST=db`, `RABBITMQ_HOST=rabbitmq`); пользователи/пароли — из `.env`
+  с дефолтами.
+- `DB_URL` / `RABBITMQ_URL` собираются в `src/config.py` из этих env
+  (`DB_HOST`/`DB_PORT`/…, `RABBITMQ_HOST`/…), поэтому отдельный
+  `BROKER_URL` в compose не используется.
+- Устойчивость к раннему старту: консюмер делает retry с паузой при
+  `ConnectionRefused` (`src/broker/consumer.py`), у `api`/`consumer` —
+  `restart: unless-stopped`.
+- Healthcheck RabbitMQ — `check_port_connectivity`: проверяет именно AMQP-порт
+  `5672`, а не только ping Erlang-ноды (иначе возможен старт консюмера раньше,
+  чем listener готов принять соединение).
+
+## CI/CD (GitHub Actions)
+
+`.github/workflows/ci.yml` — единый job `code_checks` (push в `main`/теги, PR):
+
+1. `actions/checkout@v4`, `astral-sh/setup-uv@v6` (Python 3.12);
+2. `uv sync --frozen` — установка зависимостей;
+3. `cp .env.example .env`;
+4. линтеры: `isort src --check`, `black src --check`, `flake8 src`;
+5. проверка миграций: `alembic upgrade head` + `alembic check` — модели и
+   миграции в синхроне;
+6. `uv run pytest` — интеграционные тесты против PostgreSQL 16, поднятой как
+   `service` в workflow. RabbitMQ в CI не поднимается: публикация подменяется
+   `FakeProducer`, поэтому брокер не требуется.
 
 ---
 

@@ -14,12 +14,14 @@
 
 ## Содержание
 1) [Быстрый старт](#quick-start)
-2) [Статусы тендера](#tender-statuses)
-3) [API](#api)
-4) [RabbitMQ](#rabbitmq)
-5) [Линтеры](#linters)
-6) [Тестирование](#testing)
-7) [Структура проекта](#project-structure)
+2) [Docker](#docker)
+3) [CI/CD](#ci)
+4) [Статусы тендера](#tender-statuses)
+5) [API](#api)
+6) [RabbitMQ](#rabbitmq)
+7) [Линтеры](#linters)
+8) [Тестирование](#testing)
+9) [Структура проекта](#project-structure)
 
 ## <a id="quick-start">Быстрый старт</a> 🚀
 
@@ -72,6 +74,62 @@ uv run uvicorn src.main:app --reload
 ```bash
 uv run python -m src.broker.consumer
 ```
+
+## <a id="docker">Docker</a> 🐳
+
+Весь стек поднимается одной командой — PostgreSQL, RabbitMQ, миграции, API и консюмер:
+
+```bash
+docker compose up --build
+```
+
+| Сервис | Роль |
+|---|---|
+| `db` | PostgreSQL 16 (данные в volume `tracking_pgdata`) |
+| `rabbitmq` | RabbitMQ 3.13 + Management UI (http://127.0.0.1:15672) |
+| `migrate` | Применяет Alembic-миграции (`alembic upgrade head`), разовый |
+| `api` | FastAPI (Swagger: http://127.0.0.1:8000/docs) |
+| `consumer` | Консюмер событий статусов из RabbitMQ |
+
+Полезные команды:
+```bash
+docker compose ps          # статус сервисов
+docker compose logs -f     # логи всех контейнеров
+docker compose down        # остановить (volume с БД сохраняется)
+docker compose down -v     # остановить и удалить volume БД
+```
+
+- `api` и `consumer` стартуют только после успешного `migrate` и healthcheck
+  `db`/`rabbitmq` (`depends_on: condition:`).
+- Healthcheck RabbitMQ — `check_port_connectivity` (проверяет именно AMQP-порт
+  `5672`). Если брокер ещё не принимает соединения, консюмер сам повторяет
+  подключение с паузой, а контейнеры перезапускаются (`restart: unless-stopped`).
+- Настройки берутся из `.env` (`DB_*`, `RABBITMQ_*`); внутри контейнеров хосты
+  автоматически указывают на сервисы (`db`, `rabbitmq`).
+
+Шорткаты через **Makefile**:
+```bash
+make build     # docker compose build
+make up        # docker compose up -d
+make down      # docker compose down
+make migrate   # docker compose run --rm migrate
+make logs      # docker compose logs -f
+make api       # локальный запуск API (uv run uvicorn ... --reload)
+make consumer  # локальный запуск консюмера
+make test      # uv run pytest
+make lint      # isort + black + flake8
+```
+
+## <a id="ci">CI/CD</a> 🤖
+
+GitHub Actions (`.github/workflows/ci.yml`) запускает проверки на каждый
+push/PR в `main`:
+
+1. `uv sync --frozen` — установка зависимостей (Python 3.12).
+2. Линтеры: `isort --check`, `black --check`, `flake8`.
+3. `alembic upgrade head` + `alembic check` — миграции в синхроне с моделями.
+4. `pytest` — интеграционные тесты против PostgreSQL 16, поднимаемой как
+   service в workflow (RabbitMQ не требуется — публикация подменяется `FakeProducer`).
 
 ## <a id="tender-statuses">Статусы тендера</a> 📌
 
