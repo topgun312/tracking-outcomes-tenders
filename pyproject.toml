@@ -1,7 +1,38 @@
 [project]
 name = "tracking-outcomes-tenders"
 version = "0.1.0"
-description = "Add your description here"
+description = "Tender status tracking microservice"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+
+dependencies = [
+    "aio-pika>=10.0.1",
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
+    "fastapi[all]>=0.141.1",
+    "loguru>=0.7.3",
+    "openai>=3.1.0",
+    "python-dotenv>=1.2.3",
+    "uvicorn>=0.52.3",
+]
+
+[dependency-groups]
+dev = [
+    "black>=26.5.1",
+    "flake8>=7.3.0",
+    "isort>=8.0.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
